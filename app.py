@@ -32,6 +32,7 @@ ALLOWED_END_HOUR = 21                   # 允许使用结束时间（小时）
 MAX_SESSION_MINUTES = 45                # 单次连续使用时长（分钟），超时温柔提醒
 DATA_DIR = "data"                       # 相册数据保存目录
 IMAGE_DIR = os.path.join(DATA_DIR, "images")
+BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 云端服务器是 UTC，必须换算成北京时间
 ALBUM_JSON = os.path.join(DATA_DIR, "album.json")
 KEY_FILE = os.path.join(DATA_DIR, "api_key.txt")
 
@@ -226,7 +227,7 @@ def save_album():
 def save_uploaded_image(pil_image) -> str:
     """保存上传的图片，返回文件名"""
     os.makedirs(IMAGE_DIR, exist_ok=True)
-    filename = f"{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+    filename = f"{now_beijing().strftime('%Y%m%d_%H%M%S')}.jpg"
     pil_image.convert("RGB").save(os.path.join(IMAGE_DIR, filename), quality=90)
     return filename
 
@@ -261,9 +262,14 @@ def image_to_data_uri(pil_image) -> str:
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
+def now_beijing() -> datetime.datetime:
+    """北京时间（云端服务器跑的是 UTC，必须强制换算，否则防沉迷时段会差 8 小时）"""
+    return datetime.datetime.now(BEIJING_TZ)
+
+
 def is_within_allowed_time() -> bool:
-    """判断当前是否在使用时段内"""
-    hour = datetime.datetime.now().hour
+    """判断当前是否在使用时段内（按北京时间）"""
+    hour = now_beijing().hour
     return ALLOWED_START_HOUR <= hour < ALLOWED_END_HOUR
 
 
@@ -362,7 +368,7 @@ def show_album_tab():
                         ]
                     )
                     entry = {
-                        "time": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "time": now_beijing().strftime("%Y-%m-%d %H:%M"),
                         "caption": reply,
                         "image": save_uploaded_image(pil_image),
                     }
