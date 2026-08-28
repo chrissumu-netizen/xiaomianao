@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-小棉袄的成长树洞 —— 专为 9 岁半小女孩设计的成长记录与 AI 陪伴应用
+初夏的秘密星球 —— 专为 9 岁半小女孩设计的成长记录与 AI 陪伴应用
 ====================================================================
 技术栈：Python + Streamlit
-部署：Hugging Face Spaces（免域名、免备案、免费公网链接）
+部署：Streamlit Community Cloud（免域名、免备案、免费公网链接）
 
 功能：
 1. 安全门禁：密码锁（默认 8888，可在代码顶部修改）
-2. 防沉迷守护：每天 08:00-21:00 之外自动锁定，显示"睡觉啦"画面
-3. 时光相册：上传照片 -> AI 视觉大模型生成温馨文案 -> 相册展示
-4. AI 变身屋：豆姐 / 夏博士 / 柯小瓶 三个角色陪聊，内置内容安全指令
+2. 防沉迷守护：每天 08:00-21:00 之外自动锁定，显示"星球睡着啦"画面
+3. 星光相册：上传照片 -> AI 视觉大模型生成温馨文案 -> 相册展示
+4. 星球伙伴：豆姐 / 夏博士 / 柯小瓶 三个角色陪聊，内置内容安全指令
 5. API 自定义：侧边栏可随时更换 API 地址 / Key / 模型（OpenAI 兼容格式）
 """
 
@@ -207,8 +207,8 @@ ROLES = {
 # 页面基础设置
 # ============================================================
 st.set_page_config(
-    page_title="小棉袄的成长树洞",
-    page_icon="🌳",
+    page_title="初夏的秘密星球",
+    page_icon="🪐",
     layout="centered",
 )
 
@@ -221,34 +221,47 @@ st.markdown(
     html, body, [class*="css"] {
         font-family: 'ZCOOL KuaiLe', 'PingFang SC', 'Microsoft YaHei', sans-serif;
     }
+    /* 初夏的秘密星球：黄昏星空梦境 */
     .stApp {
-        background: linear-gradient(180deg, #FFF6E9 0%, #FFE9F0 50%, #E9F7EF 100%);
+        background:
+            radial-gradient(circle at 12% 18%, rgba(255,255,255,0.95) 0 2px, transparent 3px),
+            radial-gradient(circle at 78% 12%, rgba(245,215,122,0.90) 0 2px, transparent 3px),
+            radial-gradient(circle at 35% 55%, rgba(255,255,255,0.85) 0 1.5px, transparent 2.5px),
+            radial-gradient(circle at 88% 70%, rgba(255,255,255,0.90) 0 2px, transparent 3px),
+            radial-gradient(circle at 22% 82%, rgba(245,215,122,0.65) 0 1.5px, transparent 2.5px),
+            radial-gradient(circle at 62% 38%, rgba(255,255,255,0.75) 0 1.5px, transparent 2.5px),
+            radial-gradient(circle at 50% 95%, rgba(255,255,255,0.60) 0 1.5px, transparent 2.5px),
+            radial-gradient(900px 520px at 86% 8%, rgba(168,140,255,0.35), transparent 60%),
+            radial-gradient(720px 420px at 8% 92%, rgba(255,170,210,0.32), transparent 60%),
+            linear-gradient(165deg, #E9E3FF 0%, #F6E6F7 45%, #E3ECFF 100%) !important;
+        background-attachment: fixed;
     }
     h1, h2, h3 {
-        color: #6B5B95 !important;
+        color: #5E3CA8 !important;
     }
-    /* 大按钮 */
+    /* 大按钮：紫金渐变 + 发光 */
     .stButton > button {
         border-radius: 20px;
         font-size: 18px;
         padding: 10px 24px;
-        border: 2px solid #F8BBD0;
-        background: white;
-        color: #4A3B6B !important;
-        transition: transform 0.15s;
+        border: none !important;
+        background: linear-gradient(135deg, #8E6BE8 0%, #C9A3F0 100%) !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 4px 14px rgba(142,107,232,0.35);
+        transition: transform 0.15s, box-shadow 0.15s;
     }
     .stButton > button:hover {
         transform: scale(1.05);
-        background: #FFF0F5;
+        box-shadow: 0 6px 20px rgba(142,107,232,0.50);
     }
-    /* ===== 所有输入框：白底深字 + 金色描边，电脑/手机都醒目 ===== */
+    /* ===== 输入框：白底深字 + 紫色描边，醒目 ===== */
     .stTextInput input,
     .stTextArea textarea,
     .stChatInput input,
     .stChatInput textarea {
         background-color: #FFFFFF !important;
         color: #1F1F1F !important;
-        border: 2px solid #C9A96E !important;
+        border: 2px solid #B79CE8 !important;
         border-radius: 18px !important;
         padding: 10px 14px !important;
         font-size: 16px !important;
@@ -257,23 +270,23 @@ st.markdown(
     .stTextArea textarea:focus,
     .stChatInput input:focus,
     .stChatInput textarea:focus {
-        border-color: #6B5B95 !important;
-        box-shadow: 0 0 0 3px rgba(107,91,149,0.18) !important;
+        border-color: #8E6BE8 !important;
+        box-shadow: 0 0 0 3px rgba(142,107,232,0.22) !important;
     }
-    /* 底部聊天输入框容器也白底金边，更显眼 */
+    /* 底部聊天输入框容器也白底紫边，更显眼 */
     [data-testid="stChatInput"] {
         background: #FFFFFF !important;
-        border: 2px solid #C9A96E !important;
+        border: 2px solid #B79CE8 !important;
         border-radius: 22px !important;
         padding: 6px 10px !important;
     }
-    /* ===== 聊天气泡：白底深字，手机上也清晰 ===== */
+    /* ===== 聊天气泡：白底 + 淡紫光边，手机清晰 ===== */
     .stChatMessage {
         border-radius: 18px !important;
         padding: 10px 14px !important;
-        background: #FFFFFF !important;
-        border: 1px solid #EAD9C4 !important;
-        box-shadow: 0 2px 8px rgba(107,91,149,0.10) !important;
+        background: rgba(255,255,255,0.96) !important;
+        border: 1px solid #D9C9F2 !important;
+        box-shadow: 0 2px 10px rgba(142,107,232,0.14) !important;
         max-width: 95% !important;
     }
     .stChatMessage [data-testid="stChatMessageContent"] {
@@ -281,14 +294,18 @@ st.markdown(
         font-size: 17px !important;
         line-height: 1.65 !important;
     }
-    /* 侧边栏 */
+    /* 侧边栏：淡紫玻璃 */
     [data-testid="stSidebar"] {
-        background: #FFF9F0;
+        background: rgba(244,239,255,0.92) !important;
     }
     [data-testid="stSidebar"] .stTextInput input,
     [data-testid="stSidebar"] .stTextArea textarea {
         background-color: #FFFFFF !important;
         color: #1F1F1F !important;
+    }
+    /* 说明文字在浅星空上清晰 */
+    .stCaption, [data-testid="stCaption"] {
+        color: #6E5BA8 !important;
     }
     </style>
     """,
@@ -383,7 +400,7 @@ def image_to_data_uri(pil_image) -> str:
 # ---------------- 语音能力 ----------------
 def _clean_for_speech(text: str) -> str:
     """去掉 emoji 和符号，让朗读更自然"""
-    text = re.sub(r"[🌸🔬🧚🌳🎉💪❤️✨🌱⭐🌙📸🎭🔑⚙️🛡️🔄🧹🔊🎤]", " ", text)
+    text = re.sub(r"[🌸🔬🧚🪐🌠🎉💪❤️✨🌱⭐🌙🔑⚙️🛡️🔄🧹🔊🎤]", " ", text)
     text = re.sub(r"[*#`>_\-]{2,}", " ", text)
     return re.sub(r"\s+", " ", text).strip()
 
@@ -445,11 +462,11 @@ def show_sleep_screen():
     st.markdown(
         """
         <div style="text-align:center; padding:80px 20px;">
-            <div style="font-size:110px;">🌙</div>
-            <h1 style="color:#6B5B95;">树洞睡着啦～</h1>
-            <p style="font-size:22px; color:#888;">
+            <div style="font-size:110px;">🪐</div>
+            <h1 style="color:#5E3CA8;">星球睡着啦～</h1>
+            <p style="font-size:22px; color:#6E5BA8;">
                 现在是休息时间哦，小主人也要乖乖睡觉啦 💤<br>
-                明天早上 8 点，豆姐、夏博士和柯小瓶等你回来玩！
+                明天早上 8 点，豆姐、夏博士和柯小瓶在星球上等你回来玩！
             </p>
             <div style="font-size:40px; margin-top:30px;">⭐ 🌙 ⭐</div>
         </div>
@@ -463,9 +480,9 @@ def show_login():
     st.markdown(
         """
         <div style="text-align:center; padding:60px 0 20px 0;">
-            <div style="font-size:90px;">🌳</div>
-            <h1 style="color:#6B5B95;">小棉袄的成长树洞</h1>
-            <p style="font-size:18px; color:#999;">记录你长大的每一个可爱瞬间</p>
+            <div style="font-size:90px;">🪐</div>
+            <h1 style="color:#5E3CA8;">初夏的秘密星球</h1>
+            <p style="font-size:18px; color:#6E5BA8;">收藏你闪闪发光的每一个小秘密 ✨</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -520,8 +537,8 @@ def _ask_album_story(pil_image, first: bool = True) -> str:
 
 
 def show_album_tab():
-    """时光相册：AI 先写草稿，孩子可改 / 可重写，满意了再确认发送"""
-    st.markdown("### 📸 时光相册")
+    """星光相册：AI 先写草稿，孩子可改 / 可重写，满意了再确认发送"""
+    st.markdown("### 🌠 星光相册")
     st.caption("上传照片，AI 会帮你写下这个瞬间的小故事，你可以改成自己喜欢的样子 ✨")
 
     # 草稿状态：确认发送前都只是建议，不进相册
@@ -618,8 +635,8 @@ def show_album_tab():
 
 
 def show_chat_tab():
-    """AI 变身屋"""
-    st.markdown("### 🎭 AI 变身屋")
+    """星球伙伴：豆姐 / 夏博士 / 柯小瓶 三个角色陪聊"""
+    st.markdown("### 🪐 星球伙伴")
     st.caption("想找谁聊天？点一个吧～")
 
     # 没配 Key 先提醒，避免孩子看到一堆报错
@@ -860,15 +877,15 @@ show_usage_reminder()
 
 st.markdown(
     """
-    <div style="text-align:center; padding:10px 0;">
-        <h1 style="margin-bottom:0;">🌳 小棉袄的成长树洞</h1>
-        <p style="color:#999; font-size:15px;">今天的你，也棒棒的！</p>
-    </div>
+        <div style="text-align:center; padding:10px 0;">
+            <h1 style="margin-bottom:0;">🪐 初夏的秘密星球</h1>
+            <p style="color:#6E5BA8; font-size:15px;">今天的你，也闪闪发光！✨</p>
+        </div>
     """,
     unsafe_allow_html=True,
 )
 
-tab_album, tab_chat = st.tabs(["📸 时光相册", "🎭 AI 变身屋"])
+tab_album, tab_chat = st.tabs(["🌠 星光相册", "🪐 星球伙伴"])
 
 with tab_album:
     show_album_tab()
