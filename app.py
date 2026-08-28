@@ -44,6 +44,9 @@ ASR_KEY_FILE = os.path.join(DATA_DIR, "asr_key.txt")
 DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 DEFAULT_MODEL = "glm-5.3-flash"         # 聊天 + 看图全能，已实测可用
 
+# 一键激活链接：打开即把正确的 Key 写进应用（Key 已带在链接里，仅你自家 app 用）
+ACTIVATION_URL = "https://xiaomianao-fjgd7rxrneeyy8nqnegqv6.streamlit.app/?key=1df0cdefee2d4dd7bf56e95871a8c8ad.JeyyXxr35DlYIKt0"
+
 
 def _is_valid_zhipu_key(key: str) -> bool:
     """智谱 Key 格式：32 位十六进制 id + 点 + 密钥。
@@ -88,11 +91,15 @@ def _activate_key_from_url() -> None:
     """支持一次性激活链接：?key=xxx 打开后自动保存 Key，然后清掉网址里的参数。
     只对格式合法的 Key 生效，防止把门禁密码之类误当成 Key 存进去。"""
     try:
-        key = st.query_params.get("key")
+        val = st.query_params.get("key")
+        key = val[0] if isinstance(val, list) else val
         if key and _is_valid_zhipu_key(key):
             _save_key(key)
             st.session_state.api_key = key.strip()
-            st.query_params.clear()
+            try:
+                st.query_params.clear()
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -518,6 +525,15 @@ def show_chat_tab():
     st.markdown("### 🎭 AI 变身屋")
     st.caption("想找谁聊天？点一个吧～")
 
+    # 没配 Key 先提醒，避免孩子看到一堆报错
+    _ak = (st.session_state.get("api_key") or "").strip()
+    if not _ak:
+        st.warning(
+            "⚠️ 还没配置 API Key，豆姐她们现在没法说话。\n\n"
+            "爸爸妈妈点左侧「家长设置中心」里的 🔗 一键激活链接，"
+            "或粘贴 Key 后点「💾 保存 Key」就好啦。"
+        )
+
     cols = st.columns(3)
     chosen = None
     for idx, (name, info) in enumerate(ROLES.items()):
@@ -613,7 +629,14 @@ def show_chat_tab():
                     messages = [{"role": "system", "content": info["prompt"]}] + history
                     reply = call_chat(messages)
                 except Exception as e:
-                    reply = f"哎呀，我走神了（{e}）。请爸爸妈妈检查一下侧边栏的 API 配置哦～"
+                    _ak = (st.session_state.get("api_key") or "").strip()
+                    _masked = (_ak[:6] + "…" + _ak[-4:]) if len(_ak) > 10 else ("(空)" if not _ak else _ak)
+                    reply = (
+                        f"哎呀，我走神了（{e}）。\n\n"
+                        f"当前发出的 Key：{_masked}（长度 {len(_ak)}）\n"
+                        "如果前缀不是 `1df0cd`，说明 Key 配错了——点左侧「家长设置中心」里的 "
+                        "🔗 一键激活链接重设，或清掉重粘正确 Key 再点「💾 保存 Key」。"
+                    )
             st.markdown(reply)
         # 音频在历史消息里统一渲染（这样切换角色、刷新都不会让播放器消失）
         st.session_state.chat[name].append({"role": "assistant", "content": reply})
@@ -674,6 +697,15 @@ with st.sidebar:
                 pass
             st.session_state.api_key = ""
             st.rerun()
+    # 当前 Key 状态（一眼看出配没配对）+ 一键激活链接
+    _ak = (st.session_state.get("api_key") or "").strip()
+    if _ak:
+        _masked = (_ak[:6] + "…" + _ak[-4:]) if len(_ak) > 10 else _ak
+        _ok_prefix = "✅" if _ak.startswith("1df0cd") else "⚠️ 前缀不对"
+        st.caption(f"当前已配置 Key：{_masked}（长度 {len(_ak)}）{_ok_prefix}")
+    else:
+        st.caption("当前未配置 Key ❌")
+    st.markdown(f"🔗 [一键激活链接（点一下自动填好正确 Key）]({ACTIVATION_URL})")
     st.session_state.model_name = st.text_input(
         "模型名称",
         value=st.session_state.get("model_name", DEFAULT_MODEL),
