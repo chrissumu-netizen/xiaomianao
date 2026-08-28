@@ -529,8 +529,8 @@ def show_chat_tab():
     with col_a:
         if st.button("🔊 听 ta 的声音", use_container_width=True, help="试听这个角色的声音"):
             try:
-                audio = text_to_speech(info["greeting"], name)
-                st.audio(audio, format="audio/mp3", autoplay=True)
+                st.session_state.preview_audio = text_to_speech(info["greeting"], name)
+                st.session_state.preview_role = name
             except Exception as e:
                 st.error(f"语音生成失败：{e}")
     with col_b:
@@ -538,10 +538,21 @@ def show_chat_tab():
             st.session_state.chat[name] = []
             st.rerun()
 
-    # 历史消息
-    for msg in st.session_state.chat[name]:
+    # 试听播放器（放进 session_state，避免刷新后消失）
+    if st.session_state.get("preview_role") == name and st.session_state.get("preview_audio"):
+        st.audio(st.session_state.preview_audio, format="audio/mp3", autoplay=True)
+
+    # 历史消息（助手的回复带上朗读播放器，最新的那条自动播放）
+    history = st.session_state.chat[name]
+    for idx, msg in enumerate(history):
         with st.chat_message("assistant" if msg["role"] == "assistant" else "user"):
             st.markdown(msg["content"])
+            if msg["role"] == "assistant" and st.session_state.get("auto_speak", True):
+                try:
+                    audio = text_to_speech(msg["content"], name)
+                    st.audio(audio, format="audio/mp3", autoplay=(idx == len(history) - 1))
+                except Exception:
+                    pass
 
     # 语音输入：录一段话自动转成文字发送
     st.markdown("**🎤 说给她听**（说完点停止，自动发送）")
@@ -586,13 +597,7 @@ def show_chat_tab():
                 except Exception as e:
                     reply = f"哎呀，我走神了（{e}）。请爸爸妈妈检查一下侧边栏的 API 配置哦～"
             st.markdown(reply)
-            # 自动朗读（可在侧边栏关掉）
-            if st.session_state.get("auto_speak", True) and not reply.startswith("哎呀，我走神了"):
-                try:
-                    audio = text_to_speech(reply, name)
-                    st.audio(audio, format="audio/mp3", autoplay=True)
-                except Exception as e:
-                    st.caption(f"（这次没能读出声：{str(e)[:60]}）")
+        # 音频在历史消息里统一渲染（这样切换角色、刷新都不会让播放器消失）
         st.session_state.chat[name].append({"role": "assistant", "content": reply})
 
 
