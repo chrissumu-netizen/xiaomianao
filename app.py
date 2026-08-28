@@ -27,8 +27,8 @@ from openai import OpenAI
 # 全局配置（想改什么，改这里就行）
 # ============================================================
 PASSWORD = "8888"                       # 门禁密码，建议改成只有你们家知道的
-ALLOWED_START_HOUR = 8                  # 允许使用起始时间（小时）
-ALLOWED_END_HOUR = 21                   # 允许使用结束时间（小时）
+ALLOWED_START_HOUR = 0                  # 允许使用起始时间（小时）【今晚临时全天开放，明早改回 8】
+ALLOWED_END_HOUR = 24                   # 允许使用结束时间（小时）【今晚临时全天开放，明早改回 21】
 MAX_SESSION_MINUTES = 45                # 单次连续使用时长（分钟），超时温柔提醒
 DATA_DIR = "data"                       # 相册数据保存目录
 IMAGE_DIR = os.path.join(DATA_DIR, "images")
