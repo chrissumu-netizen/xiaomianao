@@ -32,7 +32,8 @@ PASSWORD = "8888"                       # 门禁密码，建议改成只有你�
 ALLOWED_START_HOUR = 0                  # 允许使用起始时间（小时）【今晚临时全天开放，明早改回 8】
 ALLOWED_END_HOUR = 24                   # 允许使用结束时间（小时）【今晚临时全天开放，明早改回 21】
 MAX_SESSION_MINUTES = 45                # 单次连续使用时长（分钟），超时温柔提醒
-DATA_DIR = "data"                       # 相册数据保存目录
+# 数据目录放在用户主目录：应用源码目录每次重新部署都会被清空，主目录能多撑住一些
+DATA_DIR = os.path.join(os.path.expanduser("~"), "xiaomianao_data")
 IMAGE_DIR = os.path.join(DATA_DIR, "images")
 BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 云端服务器是 UTC，必须换算成北京时间
 ALBUM_JSON = os.path.join(DATA_DIR, "album.json")
@@ -44,30 +45,37 @@ DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 DEFAULT_MODEL = "glm-5.3-flash"         # 聊天 + 看图全能，已实测可用
 
 
-def _secret(name: str, default: str = "") -> str:
-    """读取 API Key，优先级：
-    1. Streamlit Secrets（云端加密，最安全）
-    2. 云端运行目录里保存的 Key（一次性激活链接写入，不进代码仓库）
-    3. 环境变量
-    注意：代码仓库是公开的，API Key 永远不要写死在代码里。"""
+def _is_valid_zhipu_key(key: str) -> bool:
+    """智谱 Key 格式：32 位十六进制 id + 点 + 密钥。
+    用来拦住被污染的 Key（比如误把门禁密码 8888 填进了 Key 框，Key 会变成 8888 开头而非法）。"""
+    return bool(re.match(r"^[0-9a-fA-F]{32}\.[A-Za-z0-9]+$", key.strip()))
+
+
+def _load_api_key() -> str:
+    """API Key 读取优先级：Streamlit Secrets > 云端运行目录(一次性激活链接写入) > 环境变量。
+    注意：代码仓库是公开的，Key 永远不写死在代码里。任何来源只要格式不对都会被忽略。"""
     try:
-        value = st.secrets.get(name)  # type: ignore[attr-defined]
-        if value:
-            return value
+        v = st.secrets.get("ZHIPU_API_KEY")  # type: ignore[attr-defined]
+        if v and _is_valid_zhipu_key(v):
+            return v.strip()
     except Exception:
         pass
     try:
         with open(KEY_FILE, "r", encoding="utf-8") as f:
-            stored = f.read().strip()
-            if stored:
-                return stored
+            s = f.read().strip()
+            if s and _is_valid_zhipu_key(s):
+                return s
     except Exception:
         pass
-    return os.environ.get(name, default)
+    e = os.environ.get("ZHIPU_API_KEY", "")
+    return e.strip() if _is_valid_zhipu_key(e) else ""
 
 
 def _save_key(key: str) -> None:
-    """把 API Key 存到云端运行目录（只存服务器端，不写进代码仓库）"""
+    """把 API Key 存到云端运行目录（只存服务器端，不写进代码仓库）。
+    格式非法绝不保存，防止污染。"""
+    if not _is_valid_zhipu_key(key):
+        return
     try:
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(KEY_FILE, "w", encoding="utf-8") as f:
@@ -77,19 +85,19 @@ def _save_key(key: str) -> None:
 
 
 def _activate_key_from_url() -> None:
-    """支持一次性激活链接：?key=xxx 打开后自动保存 Key，然后清掉网址里的参数"""
+    """支持一次性激活链接：?key=xxx 打开后自动保存 Key，然后清掉网址里的参数。
+    只对格式合法的 Key 生效，防止把门禁密码之类误当成 Key 存进去。"""
     try:
-        params = st.query_params
-        key = params.get("key")
-        if key:
+        key = st.query_params.get("key")
+        if key and _is_valid_zhipu_key(key):
             _save_key(key)
-            st.query_params.clear()
             st.session_state.api_key = key.strip()
+            st.query_params.clear()
     except Exception:
         pass
 
 
-DEFAULT_API_KEY = _secret("ZHIPU_API_KEY")
+DEFAULT_API_KEY = _load_api_key()
 
 # 语音识别（ASR）配置：任何 OpenAI 兼容 / 或支持 /audio/transcriptions 的接口都能用
 # 硅基流动 SenseVoiceSmall 目前是免费的，注册后送额度：https://cloud.siliconflow.cn
@@ -250,6 +258,13 @@ def init_state():
         "chat": {name: [] for name in ROLES},
         "session_start": None,
         "caption_cache": {},
+        "api_key": DEFAULT_API_KEY,
+        "base_url": DEFAULT_BASE_URL,
+        "model_name": DEFAULT_MODEL,
+        "auto_speak": True,
+        "asr_base_url": DEFAULT_ASR_BASE_URL,
+        "asr_key": DEFAULT_ASR_KEY,
+        "asr_model": DEFAULT_ASR_MODEL,
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -285,9 +300,12 @@ def save_uploaded_image(pil_image) -> str:
 
 def get_client():
     """根据侧边栏配置创建 OpenAI 兼容客户端"""
-    api_key = st.session_state.api_key.strip()
+    api_key = (st.session_state.get("api_key") or "").strip()
     if not api_key:
-        raise RuntimeError("还没有配置 API Key，请爸爸妈妈在左侧边栏填写")
+        raise RuntimeError(
+            "还没有配置 API Key。爸爸妈妈可以在左侧「家长设置中心」粘贴 Key 并点「保存 Key」，"
+            "或直接打开带 ?key= 的专属激活链接"
+        )
     return OpenAI(
         api_key=api_key,
         base_url=st.session_state.base_url.strip(),
@@ -608,7 +626,20 @@ init_state()
 _activate_key_from_url()   # 支持 ?key=xxx 一次性激活，放在门禁之前
 load_album()
 
-# 侧边栏：API 配置（可随时更换大模型）
+# 家长设置已移到门禁之后渲染（见下方“主流程”中的 with st.sidebar 块），
+# 这样登录页干净、孩子也碰不到 API Key 框，避免 Key 被误填污染。
+
+# 门禁
+if not st.session_state.authenticated:
+    show_login()
+    st.stop()
+
+# 防沉迷：时段锁定
+if not is_within_allowed_time():
+    show_sleep_screen()
+    st.stop()
+
+# ================= 家长设置（仅在解锁后显示，孩子碰不到 Key 框） =================
 with st.sidebar:
     st.markdown("## ⚙️ 家长设置中心")
     st.caption("这里的设置只有爸爸妈妈需要动～")
@@ -620,21 +651,29 @@ with st.sidebar:
              "OpenAI: https://api.openai.com/v1\n"
              "通义千问: https://dashscope.aliyuncs.com/compatible-mode/v1",
     )
-    st.session_state.api_key = st.text_input(
+    key_input = st.text_input(
         "API Key",
-        value=st.session_state.get("api_key") or DEFAULT_API_KEY,
+        value=st.session_state.get("api_key", ""),
         type="password",
+        help="智谱 Key 格式是 32 位字符 + 点 + 一串密钥；填错会被自动拒绝",
     )
-    # 家长填过的 Key 自动存到云端运行目录，以后打开就不用再填
-    if st.session_state.api_key.strip() and st.session_state.api_key.strip() != _secret("ZHIPU_API_KEY"):
-        _save_key(st.session_state.api_key)
-    if st.button("🧹 清除已保存的 Key"):
-        try:
-            os.remove(KEY_FILE)
+    col_save, col_clear = st.columns(2)
+    with col_save:
+        if st.button("💾 保存 Key", use_container_width=True):
+            if _is_valid_zhipu_key(key_input):
+                _save_key(key_input)
+                st.session_state.api_key = key_input.strip()
+                st.success("Key 已保存 ✅")
+            else:
+                st.error("这个 Key 格式不对，请检查是不是多了空格，或把门禁密码填进来了")
+    with col_clear:
+        if st.button("🧹 清除 Key", use_container_width=True):
+            try:
+                os.remove(KEY_FILE)
+            except Exception:
+                pass
             st.session_state.api_key = ""
             st.rerun()
-        except Exception:
-            pass
     st.session_state.model_name = st.text_input(
         "模型名称",
         value=st.session_state.get("model_name", DEFAULT_MODEL),
@@ -659,7 +698,7 @@ with st.sidebar:
         )
         st.session_state.asr_key = st.text_input(
             "识别 Key",
-            value=st.session_state.get("asr_key") or DEFAULT_ASR_KEY,
+            value=st.session_state.get("asr_key", ""),
             type="password",
         )
         st.session_state.asr_model = st.text_input(
@@ -667,8 +706,12 @@ with st.sidebar:
             value=st.session_state.get("asr_model", DEFAULT_ASR_MODEL),
             help="硅基流动免费：FunAudioLLM/SenseVoiceSmall\nOpenAI：whisper-1",
         )
-        if st.session_state.asr_key.strip() and st.session_state.asr_key.strip() != DEFAULT_ASR_KEY:
-            _save_asr_key(st.session_state.asr_key)
+        if st.button("💾 保存识别 Key", use_container_width=True):
+            if st.session_state.asr_key.strip():
+                _save_asr_key(st.session_state.asr_key)
+                st.success("识别 Key 已保存 ✅")
+            else:
+                st.warning("识别 Key 是空的")
         st.info(
             "免费 Key 获取：注册 https://cloud.siliconflow.cn → 控制台 → API 密钥 → 复制，"
             "粘贴到上面即可（SenseVoiceSmall 是免费的）。\n\n"
@@ -682,16 +725,6 @@ with st.sidebar:
         f"- 连续使用提醒：{MAX_SESSION_MINUTES} 分钟\n"
         f"- AI 内容安全指令：已开启 ✅"
     )
-
-# 门禁
-if not st.session_state.authenticated:
-    show_login()
-    st.stop()
-
-# 防沉迷：时段锁定
-if not is_within_allowed_time():
-    show_sleep_screen()
-    st.stop()
 
 # 主界面
 show_usage_reminder()
