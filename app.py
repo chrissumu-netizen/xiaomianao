@@ -13,10 +13,12 @@
 5. API 自定义：侧边栏可随时更换 API 地址 / Key / 模型（OpenAI 兼容格式）
 """
 
+import asyncio
 import base64
 import io
 import json
 import os
+import re
 import datetime
 
 import streamlit as st
@@ -35,6 +37,7 @@ IMAGE_DIR = os.path.join(DATA_DIR, "images")
 BEIJING_TZ = datetime.timezone(datetime.timedelta(hours=8))  # 云端服务器是 UTC，必须换算成北京时间
 ALBUM_JSON = os.path.join(DATA_DIR, "album.json")
 KEY_FILE = os.path.join(DATA_DIR, "api_key.txt")
+ASR_KEY_FILE = os.path.join(DATA_DIR, "asr_key.txt")
 
 # 默认 API 配置（OpenAI 兼容格式，智谱 AI 的地址）
 DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
@@ -88,6 +91,42 @@ def _activate_key_from_url() -> None:
 
 DEFAULT_API_KEY = _secret("ZHIPU_API_KEY")
 
+# 语音识别（ASR）配置：任何 OpenAI 兼容 / 或支持 /audio/transcriptions 的接口都能用
+# 硅基流动 SenseVoiceSmall 目前是免费的，注册后送额度：https://cloud.siliconflow.cn
+DEFAULT_ASR_BASE_URL = "https://api.siliconflow.cn/v1"
+DEFAULT_ASR_MODEL = "FunAudioLLM/SenseVoiceSmall"
+
+
+def _load_asr_key() -> str:
+    """单独读取语音识别 Key（不能复用大模型的 Key 文件）"""
+    try:
+        v = st.secrets.get("ASR_API_KEY")  # type: ignore[attr-defined]
+        if v:
+            return v
+    except Exception:
+        pass
+    try:
+        with open(ASR_KEY_FILE, "r", encoding="utf-8") as f:
+            s = f.read().strip()
+            if s:
+                return s
+    except Exception:
+        pass
+    return os.environ.get("ASR_API_KEY", "")
+
+
+DEFAULT_ASR_KEY = _load_asr_key()
+
+
+def _save_asr_key(key: str) -> None:
+    """保存语音识别 Key 到云端运行目录"""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(ASR_KEY_FILE, "w", encoding="utf-8") as f:
+            f.write(key.strip())
+    except Exception:
+        pass
+
 # ============================================================
 # 三个 AI 角色设定
 # ============================================================
@@ -106,6 +145,10 @@ ROLES = {
         "emoji": "🌸",
         "color": "#FFD9E8",
         "desc": "温柔的知心姐姐，最会倾听和安慰",
+        "voice": "zh-CN-XiaoxiaoNeural",   # 温柔亲切的女声（豆包那种感觉）
+        "pitch": "+0Hz",
+        "rate": "+0%",
+        "greeting": "嗨，我是豆姐，有什么开心的事想跟我说说吗？",
         "prompt": (
             "你是'豆姐'，一位温柔的知心大姐姐，陪伴一个 9 岁半的小女孩聊天。"
             "你共情能力特别强，擅长倾听和安慰，说话亲切自然，像最好的朋友。"
@@ -117,6 +160,10 @@ ROLES = {
         "emoji": "🔬",
         "color": "#D4F0E0",
         "desc": "博学的百科博士，什么都知道一点点",
+        "voice": "zh-CN-YunyangNeural",    # 沉稳专业的男声
+        "pitch": "-5Hz",
+        "rate": "+0%",
+        "greeting": "你好，我是夏博士，又有什么有趣的问题要问我吗？",
         "prompt": (
             "你是'夏博士'，一位博学又有趣的百科博士，服务一个 9 岁半的小女孩。"
             "你逻辑清晰，擅长把复杂的科学知识讲得简单又好玩，常用生活中的例子打比方。"
@@ -128,6 +175,10 @@ ROLES = {
         "emoji": "🧚",
         "color": "#E8DBF5",
         "desc": "俏皮的魔法小精灵，最爱奇思妙想",
+        "voice": "zh-CN-XiaoyiNeural",     # 活泼女声，调高音调更可爱
+        "pitch": "+18Hz",
+        "rate": "+12%",
+        "greeting": "嗨嗨！我是柯小瓶，我们今天要去哪里冒险呀！",
         "prompt": (
             "你是'柯小瓶'，一只充满好奇心的魔法小精灵，陪伴一个 9 岁半的小女孩。"
             "你说话俏皮可爱，喜欢用感叹号，充满想象力，常常把普通的事情说得像冒险故事！"
@@ -260,6 +311,52 @@ def image_to_data_uri(pil_image) -> str:
     buf = io.BytesIO()
     pil_image.convert("RGB").save(buf, format="JPEG", quality=85)
     return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+# ---------------- 语音能力 ----------------
+def _clean_for_speech(text: str) -> str:
+    """去掉 emoji 和符号，让朗读更自然"""
+    text = re.sub(r"[🌸🔬🧚🌳🎉💪❤️✨🌱⭐🌙📸🎭🔑⚙️🛡️🔄🧹🔊🎤]", " ", text)
+    text = re.sub(r"[*#`>_\-]{2,}", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def text_to_speech(text: str, role: str) -> bytes:
+    """文字转语音：每个角色有自己的声音，返回 mp3 字节"""
+    import edge_tts
+
+    info = ROLES.get(role, {})
+    async def _generate() -> bytes:
+        comm = edge_tts.Communicate(
+            _clean_for_speech(text),
+            info.get("voice", "zh-CN-XiaoxiaoNeural"),
+            pitch=info.get("pitch", "+0Hz"),
+            rate=info.get("rate", "+0%"),
+        )
+        buf = io.BytesIO()
+        async for chunk in comm.stream():
+            if chunk["type"] == "audio":
+                buf.write(chunk["data"])
+        return buf.getvalue()
+
+    return asyncio.run(_generate())
+
+
+def transcribe_audio(audio_bytes: bytes) -> str:
+    """语音转文字：调用 OpenAI 兼容的音频识别接口"""
+    key = (st.session_state.get("asr_key") or "").strip()
+    if not key:
+        raise RuntimeError("还没配置语音识别 Key")
+    client = OpenAI(
+        api_key=key,
+        base_url=(st.session_state.get("asr_base_url") or "").strip() or DEFAULT_ASR_BASE_URL,
+    )
+    resp = client.audio.transcriptions.create(
+        model=(st.session_state.get("asr_model") or "").strip() or DEFAULT_ASR_MODEL,
+        file=("voice.wav", audio_bytes, "audio/wav"),
+    )
+    return (getattr(resp, "text", None) or "").strip()
 
 
 def now_beijing() -> datetime.datetime:
@@ -428,16 +525,52 @@ def show_chat_tab():
         """,
         unsafe_allow_html=True,
     )
-    if st.button("🔄 换一个聊天对象（清空当前对话）"):
-        st.session_state.chat[name] = []
-        st.rerun()
+    col_a, col_b = st.columns(2)
+    with col_a:
+        if st.button("🔊 听 ta 的声音", use_container_width=True, help="试听这个角色的声音"):
+            try:
+                audio = text_to_speech(info["greeting"], name)
+                st.audio(audio, format="audio/mp3", autoplay=True)
+            except Exception as e:
+                st.error(f"语音生成失败：{e}")
+    with col_b:
+        if st.button("🔄 清空当前对话", use_container_width=True):
+            st.session_state.chat[name] = []
+            st.rerun()
 
     # 历史消息
     for msg in st.session_state.chat[name]:
         with st.chat_message("assistant" if msg["role"] == "assistant" else "user"):
             st.markdown(msg["content"])
 
-    user_input = st.chat_input(f"和{name}说点什么吧～")
+    # 语音输入：录一段话自动转成文字发送
+    st.markdown("**🎤 说给她听**（说完点停止，自动发送）")
+    audio_value = st.audio_input("按住说话", key=f"mic_{name}", label_visibility="collapsed")
+    user_input = None
+    if audio_value is not None:
+        audio_bytes = audio_value.getvalue()
+        fingerprint = f"{len(audio_bytes)}_{name}"
+        if st.session_state.get("last_audio") != fingerprint:
+            st.session_state.last_audio = fingerprint
+            if st.session_state.get("asr_key", "").strip():
+                with st.spinner("正在听懂你的话…"):
+                    try:
+                        user_input = transcribe_audio(audio_bytes)
+                        if user_input:
+                            st.success(f"听到啦：{user_input}")
+                        else:
+                            st.warning("没听清楚，再说一遍试试～")
+                    except Exception as e:
+                        st.error(f"语音识别失败：{e}")
+            else:
+                st.info(
+                    "还没配置语音识别 Key 哦～爸爸妈妈在左侧边栏「🎙️ 语音设置」填一下就能用了。"
+                    "（也可以用手机输入法键盘上自带的小话筒，直接说话就能打字）"
+                )
+
+    if not user_input:
+        user_input = st.chat_input(f"和{name}说点什么吧～")
+
     if user_input:
         st.session_state.chat[name].append({"role": "user", "content": user_input})
         with st.chat_message("user"):
@@ -453,6 +586,13 @@ def show_chat_tab():
                 except Exception as e:
                     reply = f"哎呀，我走神了（{e}）。请爸爸妈妈检查一下侧边栏的 API 配置哦～"
             st.markdown(reply)
+            # 自动朗读（可在侧边栏关掉）
+            if st.session_state.get("auto_speak", True) and not reply.startswith("哎呀，我走神了"):
+                try:
+                    audio = text_to_speech(reply, name)
+                    st.audio(audio, format="audio/mp3", autoplay=True)
+                except Exception as e:
+                    st.caption(f"（这次没能读出声：{str(e)[:60]}）")
         st.session_state.chat[name].append({"role": "assistant", "content": reply})
 
 
@@ -497,6 +637,39 @@ with st.sidebar:
              "OpenAI: gpt-4o\n"
              "通义: qwen-vl-plus",
     )
+    st.markdown("---")
+    st.markdown("## 🎙️ 语音设置")
+
+    st.session_state.auto_speak = st.checkbox(
+        "🔊 自动朗读回复",
+        value=st.session_state.get("auto_speak", True),
+        help="关掉的话，回复就只显示文字，不自动出声",
+    )
+    st.caption("三个角色各有一种声音：豆姐=温柔姐姐声、夏博士=沉稳男声、柯小瓶=俏皮可爱声")
+
+    with st.expander("语音识别（说话输入）配置"):
+        st.session_state.asr_base_url = st.text_input(
+            "识别接口地址",
+            value=st.session_state.get("asr_base_url", DEFAULT_ASR_BASE_URL),
+        )
+        st.session_state.asr_key = st.text_input(
+            "识别 Key",
+            value=st.session_state.get("asr_key") or DEFAULT_ASR_KEY,
+            type="password",
+        )
+        st.session_state.asr_model = st.text_input(
+            "识别模型",
+            value=st.session_state.get("asr_model", DEFAULT_ASR_MODEL),
+            help="硅基流动免费：FunAudioLLM/SenseVoiceSmall\nOpenAI：whisper-1",
+        )
+        if st.session_state.asr_key.strip() and st.session_state.asr_key.strip() != DEFAULT_ASR_KEY:
+            _save_asr_key(st.session_state.asr_key)
+        st.info(
+            "免费 Key 获取：注册 https://cloud.siliconflow.cn → 控制台 → API 密钥 → 复制，"
+            "粘贴到上面即可（SenseVoiceSmall 是免费的）。\n\n"
+            "不配置也能用：直接用手机输入法键盘上的 🎤 说话，一样能输入。"
+        )
+
     st.markdown("---")
     st.markdown(
         f"🔒 **守护模式**\n\n"
