@@ -27,10 +27,28 @@ short_description: 为九岁半小女孩定制的成长记录与AI陪伴空间
 | ⚙️ API 自定义 | 侧边栏可随时更换 API 地址 / Key / 模型（OpenAI 兼容格式即可） |
 | 🛡️ 内容安全 | 每个角色的 System Prompt 都内置硬性安全指令，屏蔽一切负面话题 |
 
-## API 配置（已预填，开箱即用）
+## 已部署（线上可用）
 
-API Key 已预填在 `app.py` 里（智谱 AI `glm-5.3-flash`，聊天+看图全能，已实测）。
-想换模型时在左侧边栏「家长设置中心」改：
+| 项目 | 内容 |
+|------|------|
+| 访问地址 | **https://xiaomianao-fjgd7rxrneeyy8nqnegqv6.streamlit.app/** |
+| 托管平台 | Streamlit Community Cloud（免费，免域名免备案） |
+| 代码仓库 | https://github.com/chrissumu-netizen/xiaomianao |
+| 模型 | 智谱 AI `glm-5.3-flash`（聊天 + 看图全能，已实测） |
+
+代码推到 GitHub 后，Streamlit Cloud 会在约 1 分钟自动重新部署。
+
+## API Key 的安全存法（重要）
+
+代码仓库是**公开**的，所以 API Key 没有写进任何代码文件。实际生效方式有两条：
+
+1. **一次性激活链接**（当前正在用）：用 `?key=你的Key` 打开应用一次，
+   Key 会写入云端运行目录，之后正常网址就能用，网址里的参数会自动清掉。
+   Key 只存在于服务器端，不进代码仓库、不进浏览器历史。
+2. **Streamlit Secrets**（更规范）：应用菜单 ⋯ → Settings → Secrets 里填
+   `ZHIPU_API_KEY = "你的Key"`，优先级最高。
+
+想换模型改左侧边栏「家长设置中心」：
 
 | 供应商 | API 地址 | 模型名 | 说明 |
 |--------|---------|--------|------|
@@ -39,33 +57,15 @@ API Key 已预填在 `app.py` 里（智谱 AI `glm-5.3-flash`，聊天+看图全
 | 阿里通义 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `qwen-vl-plus` | 国内直连，有免费额度 |
 
 > 注意：时光相册需要**支持图片的模型**，纯文字模型会报错。
-> ⚠️ 因为 Key 写在代码里，Space 必须设为 **Private**。
-
-## 部署到 Hugging Face Spaces（5 分钟搞定）
-
-1. 注册/登录 https://huggingface.co （免费）
-2. 右上角头像 → **New Space**
-3. 填写：
-   - Space name：随便起，比如 `xiaomianao`
-   - License：选 `mit` 或不选
-   - **SDK：选 Streamlit** ⚠️ 关键步骤
-   - Visibility：建议选 **Private**（只有家人能访问）
-4. 创建后，把 `app.py` 和 `requirements.txt` 两个文件上传（页面里有 "Add file → Upload files" 按钮）
-5. 等 1-2 分钟自动构建完成，页面顶部就是你的专属网址：
-   `https://你的用户名-你的spacename.hf.space`
-6. 手机浏览器打开这个网址即可使用 ✅
+> 应用若长时间无人访问会休眠，下次打开冷启动约 30 秒。
 
 ## 重要提醒
 
-- **相册数据是临时的**：Hugging Face 免费版重启应用后会清空上传的照片和文案。
-  想长期保存有两个办法：
-  1. 把重要照片+文案截图保存到手机（最简单）
-  2. 后续可以升级为持久化存储（需要我来改代码，接入云存储）
-- **API Key 安全**：侧边栏的 Key 只存在浏览器本次会话里，刷新后要重新填。
-  如果嫌麻烦，可以把 Key 写死进 `app.py`（改 `DEFAULT_BASE_URL` 那一段，加一行
-  `os.environ["ZHIPU_API_KEY"] = "你的key"` 之类），但 Private Space 才建议这么做。
-- **改密码**：`app.py` 第 26 行 `PASSWORD = "8888"`
-- **改时段**：`ALLOWED_START_HOUR` / `ALLOWED_END_HOUR`
+- **相册数据是临时的**：云端重启后会清空照片和文案（免费托管的通病）。
+  重要内容建议截图保存；想要真正的长期保存，可以后续接入云存储。
+- **API Key 若失效**：重新用一次性激活链接打开一次即可。
+- **改密码**：`app.py` 第 29 行 `PASSWORD = "8888"`
+- **改时段**：`ALLOWED_START_HOUR`（默认 8）/ `ALLOWED_END_HOUR`（默认 21）
 - **改角色名字**：搜索 `ROLES` 字典，把"豆姐"等名字替换即可
 
 ## 本地运行（可选）
