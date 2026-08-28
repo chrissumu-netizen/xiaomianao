@@ -234,19 +234,61 @@ st.markdown(
         padding: 10px 24px;
         border: 2px solid #F8BBD0;
         background: white;
+        color: #4A3B6B !important;
         transition: transform 0.15s;
     }
     .stButton > button:hover {
         transform: scale(1.05);
         background: #FFF0F5;
     }
-    /* 聊天输入框 */
-    .stChatInput {
-        border-radius: 20px !important;
+    /* ===== 所有输入框：白底深字 + 金色描边，电脑/手机都醒目 ===== */
+    .stTextInput input,
+    .stTextArea textarea,
+    .stChatInput input,
+    .stChatInput textarea {
+        background-color: #FFFFFF !important;
+        color: #1F1F1F !important;
+        border: 2px solid #C9A96E !important;
+        border-radius: 18px !important;
+        padding: 10px 14px !important;
+        font-size: 16px !important;
+    }
+    .stTextInput input:focus,
+    .stTextArea textarea:focus,
+    .stChatInput input:focus,
+    .stChatInput textarea:focus {
+        border-color: #6B5B95 !important;
+        box-shadow: 0 0 0 3px rgba(107,91,149,0.18) !important;
+    }
+    /* 底部聊天输入框容器也白底金边，更显眼 */
+    [data-testid="stChatInput"] {
+        background: #FFFFFF !important;
+        border: 2px solid #C9A96E !important;
+        border-radius: 22px !important;
+        padding: 6px 10px !important;
+    }
+    /* ===== 聊天气泡：白底深字，手机上也清晰 ===== */
+    .stChatMessage {
+        border-radius: 18px !important;
+        padding: 10px 14px !important;
+        background: #FFFFFF !important;
+        border: 1px solid #EAD9C4 !important;
+        box-shadow: 0 2px 8px rgba(107,91,149,0.10) !important;
+        max-width: 95% !important;
+    }
+    .stChatMessage [data-testid="stChatMessageContent"] {
+        color: #1F1F1F !important;
+        font-size: 17px !important;
+        line-height: 1.65 !important;
     }
     /* 侧边栏 */
     [data-testid="stSidebar"] {
         background: #FFF9F0;
+    }
+    [data-testid="stSidebar"] .stTextInput input,
+    [data-testid="stSidebar"] .stTextArea textarea {
+        background-color: #FFFFFF !important;
+        color: #1F1F1F !important;
     }
     </style>
     """,
