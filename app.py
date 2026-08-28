@@ -28,11 +28,12 @@ from openai import OpenAI
 # ============================================================
 PASSWORD = "8888"                       # 门禁密码，建议改成只有你们家知道的
 ALLOWED_START_HOUR = 8                  # 允许使用起始时间（小时）
-ALLOWED_END_HOUR = 21                   # 允许使用结束时间（小时）
+ALLOWED_END_HOUR = 23   # 临时放宽用于测试，测试后改回 21                   # 允许使用结束时间（小时）
 MAX_SESSION_MINUTES = 45                # 单次连续使用时长（分钟），超时温柔提醒
 DATA_DIR = "data"                       # 相册数据保存目录
 IMAGE_DIR = os.path.join(DATA_DIR, "images")
 ALBUM_JSON = os.path.join(DATA_DIR, "album.json")
+KEY_FILE = os.path.join(DATA_DIR, "api_key.txt")
 
 # 默认 API 配置（OpenAI 兼容格式，智谱 AI 的地址）
 DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
@@ -40,7 +41,10 @@ DEFAULT_MODEL = "glm-5.3-flash"         # 聊天 + 看图全能，已实测可�
 
 
 def _secret(name: str, default: str = "") -> str:
-    """优先读 Streamlit Secrets（云端加密存储），其次读环境变量，最后用默认值。
+    """读取 API Key，优先级：
+    1. Streamlit Secrets（云端加密，最安全）
+    2. 云端运行目录里保存的 Key（一次性激活链接写入，不进代码仓库）
+    3. 环境变量
     注意：代码仓库是公开的，API Key 永远不要写死在代码里。"""
     try:
         value = st.secrets.get(name)  # type: ignore[attr-defined]
@@ -48,7 +52,37 @@ def _secret(name: str, default: str = "") -> str:
             return value
     except Exception:
         pass
+    try:
+        with open(KEY_FILE, "r", encoding="utf-8") as f:
+            stored = f.read().strip()
+            if stored:
+                return stored
+    except Exception:
+        pass
     return os.environ.get(name, default)
+
+
+def _save_key(key: str) -> None:
+    """把 API Key 存到云端运行目录（只存服务器端，不写进代码仓库）"""
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(KEY_FILE, "w", encoding="utf-8") as f:
+            f.write(key.strip())
+    except Exception:
+        pass
+
+
+def _activate_key_from_url() -> None:
+    """支持一次性激活链接：?key=xxx 打开后自动保存 Key，然后清掉网址里的参数"""
+    try:
+        params = st.query_params
+        key = params.get("key")
+        if key:
+            _save_key(key)
+            st.query_params.clear()
+            st.session_state.api_key = key.strip()
+    except Exception:
+        pass
 
 
 DEFAULT_API_KEY = _secret("ZHIPU_API_KEY")
@@ -420,6 +454,7 @@ def show_chat_tab():
 # 主流程
 # ============================================================
 init_state()
+_activate_key_from_url()   # 支持 ?key=xxx 一次性激活，放在门禁之前
 load_album()
 
 # 侧边栏：API 配置（可随时更换大模型）
@@ -439,6 +474,16 @@ with st.sidebar:
         value=st.session_state.get("api_key") or DEFAULT_API_KEY,
         type="password",
     )
+    # 家长填过的 Key 自动存到云端运行目录，以后打开就不用再填
+    if st.session_state.api_key.strip() and st.session_state.api_key.strip() != _secret("ZHIPU_API_KEY"):
+        _save_key(st.session_state.api_key)
+    if st.button("🧹 清除已保存的 Key"):
+        try:
+            os.remove(KEY_FILE)
+            st.session_state.api_key = ""
+            st.rerun()
+        except Exception:
+            pass
     st.session_state.model_name = st.text_input(
         "模型名称",
         value=st.session_state.get("model_name", DEFAULT_MODEL),
