@@ -449,10 +449,44 @@ def show_usage_reminder():
             )
 
 
+def _ask_album_story(pil_image, first: bool = True) -> str:
+    """让 AI 给相册照片写一段小故事。first=True 写第一稿；first=False 换一个完全不同的写法。"""
+    uri = image_to_data_uri(pil_image)
+    base = (
+        "你是温柔的知心姐姐，为一个 9 岁半小女孩的家庭相册写文案。"
+        "根据照片内容，写一段 100 字左右、温馨有趣、充满正能量的日常小故事。"
+        "用第二人称'你'来写，就像跟孩子说话一样。"
+        "不要出现任何负面描述，如果照片模糊看不清，就围绕'记录美好瞬间'来写。"
+    )
+    if not first:
+        base += "这次换一个完全不同的角度、不同的细节和写法，不要和刚才那篇重复。"
+    return call_chat(
+        [
+            {
+                "role": "system",
+                "content": base + SAFETY_PROMPT,
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "请为这张照片写一段成长相册文案～"},
+                    {"type": "image_url", "image_url": {"url": uri}},
+                ],
+            },
+        ]
+    )
+
+
 def show_album_tab():
-    """时光相册"""
+    """时光相册：AI 先写草稿，孩子可改 / 可重写，满意了再确认发送"""
     st.markdown("### 📸 时光相册")
-    st.caption("上传照片，AI 会帮你写下这个瞬间的小故事 ✨")
+    st.caption("上传照片，AI 会帮你写下这个瞬间的小故事，你可以改成自己喜欢的样子 ✨")
+
+    # 草稿状态：确认发送前都只是建议，不进相册
+    if "draft" not in st.session_state:
+        st.session_state.draft = None
+    if "album_draft_editor" not in st.session_state:
+        st.session_state.album_draft_editor = ""
 
     uploaded = st.file_uploader(
         "选择一张照片",
@@ -464,41 +498,62 @@ def show_album_tab():
         pil_image = Image.open(uploaded)
         st.image(pil_image, use_container_width=True)
 
-        if st.button("✨ 让 AI 写一段小故事", use_container_width=True):
-            key = st.session_state.caption_cache_key = id(pil_image)
-            with st.spinner("豆姐正在认真看照片，稍等一下下～"):
-                try:
-                    uri = image_to_data_uri(pil_image)
-                    reply = call_chat(
-                        [
-                            {
-                                "role": "system",
-                                "content": (
-                                    "你是温柔的知心姐姐，为一个 9 岁半小女孩的家庭相册写文案。"
-                                    "根据照片内容，写一段 100 字左右、温馨有趣、充满正能量的日常小故事。"
-                                    "用第二人称'你'来写，就像跟孩子说话一样。"
-                                    "不要出现任何负面描述，如果照片模糊看不清，就围绕'记录美好瞬间'来写。"
-                                ) + SAFETY_PROMPT,
-                            },
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": "请为这张照片写一段成长相册文案～"},
-                                    {"type": "image_url", "image_url": {"url": uri}},
-                                ],
-                            },
-                        ]
-                    )
-                    entry = {
-                        "time": now_beijing().strftime("%Y-%m-%d %H:%M"),
-                        "caption": reply,
-                        "image": save_uploaded_image(pil_image),
-                    }
-                    st.session_state.album.insert(0, entry)
-                    save_album()
+        if st.session_state.draft is None:
+            # 还没写：请 AI 出第一稿
+            if st.button("✨ 让 AI 写一段小故事", use_container_width=True):
+                with st.spinner("豆姐正在认真看照片，稍等一下下～"):
+                    try:
+                        reply = _ask_album_story(pil_image, first=True)
+                        st.session_state.draft = {
+                            "image": save_uploaded_image(pil_image),
+                            "time": now_beijing().strftime("%Y-%m-%d %H:%M"),
+                        }
+                        st.session_state.album_draft_editor = reply
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"AI 开小差了：{e}\n\n请检查侧边栏的 API 配置是否正确。")
+        else:
+            # 已有草稿：可改、可重写、可确认
+            st.markdown("---")
+            st.markdown("🌟 **AI 写的小故事（可以改成你喜欢的样子哦）**")
+            st.session_state.album_draft_editor = st.text_area(
+                "改一改这个故事，满意了再点确认发送～",
+                value=st.session_state.album_draft_editor,
+                height=200,
+                label_visibility="collapsed",
+                key="album_draft_editor",
+            )
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                if st.button("🔄 重新写一个", use_container_width=True):
+                    with st.spinner("豆姐再想想别的写法…"):
+                        try:
+                            st.session_state.album_draft_editor = _ask_album_story(pil_image, first=False)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"AI 开小差了：{e}")
+            with c2:
+                if st.button("✅ 确认发送", use_container_width=True, type="primary"):
+                    caption = (st.session_state.album_draft_editor or "").strip()
+                    if caption:
+                        st.session_state.album.insert(0, {
+                            "time": st.session_state.draft["time"],
+                            "caption": caption,
+                            "image": st.session_state.draft["image"],
+                        })
+                        save_album()
+                    st.session_state.draft = None
+                    st.session_state.album_draft_editor = ""
                     st.rerun()
-                except Exception as e:
-                    st.error(f"AI 开小差了：{e}\n\n请检查侧边栏的 API 配置是否正确。")
+            with c3:
+                if st.button("🗑️ 不要了", use_container_width=True):
+                    try:
+                        os.remove(os.path.join(IMAGE_DIR, st.session_state.draft["image"]))
+                    except Exception:
+                        pass
+                    st.session_state.draft = None
+                    st.session_state.album_draft_editor = ""
+                    st.rerun()
 
     # 相册展示
     st.markdown("---")
