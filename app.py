@@ -89,18 +89,27 @@ def _save_key(key: str) -> None:
 
 
 def _activate_key_from_url() -> None:
-    """支持一次性激活链接：?key=xxx 打开后自动保存 Key，然后清掉网址里的参数。
-    只对格式合法的 Key 生效，防止把门禁密码之类误当成 Key 存进去。"""
+    """支持一次性激活链接：?key=xxx&asr=yyy 打开后自动保存两个 Key，然后清掉网址参数。
+    key 只对格式合法的智谱 Key 生效；asr 只对 sk- 开头的硅基流动 Key 生效，
+    防止把门禁密码之类误当成 Key 存进去。"""
     try:
         val = st.query_params.get("key")
         key = val[0] if isinstance(val, list) else val
         if key and _is_valid_zhipu_key(key):
             _save_key(key)
             st.session_state.api_key = key.strip()
-            try:
-                st.query_params.clear()
-            except Exception:
-                pass
+    except Exception:
+        pass
+    try:
+        val = st.query_params.get("asr")
+        asr_key = val[0] if isinstance(val, list) else val
+        if asr_key and str(asr_key).strip().startswith("sk-"):
+            _save_asr_key(str(asr_key))
+            st.session_state.asr_key = str(asr_key).strip()
+    except Exception:
+        pass
+    try:
+        st.query_params.clear()
     except Exception:
         pass
 
@@ -948,6 +957,13 @@ with st.sidebar:
             value=st.session_state.get("asr_model", DEFAULT_ASR_MODEL),
             help="硅基流动免费：FunAudioLLM/SenseVoiceSmall\nOpenAI：whisper-1",
         )
+        # 当前识别 Key 状态（一眼看出配没配，不用反复填）
+        _ask = (st.session_state.get("asr_key") or "").strip()
+        if _ask:
+            _amask = _ask[:5] + "…" + _ask[-4:] if len(_ask) > 12 else _ask
+            st.caption(f"当前识别 Key：{_amask}（{len(_ask)} 位）✅")
+        else:
+            st.caption("当前未配置识别 Key ❌")
         if st.button("💾 保存识别 Key", use_container_width=True):
             if st.session_state.asr_key.strip():
                 _save_asr_key(st.session_state.asr_key)
@@ -957,6 +973,8 @@ with st.sidebar:
         st.info(
             "免费 Key 获取：注册 https://cloud.siliconflow.cn → 控制台 → API 密钥 → 复制，"
             "粘贴到上面即可（SenseVoiceSmall 是免费的）。\n\n"
+            "⚠️ 免费版重启会清空「点保存」存的 Key，想永久保留：把 Key 填到 "
+            "Streamlit 后台「设置 → Secrets」里（键名 ASR_API_KEY），配一次永远不用再填。\n\n"
             "不配置也能用：直接用手机输入法键盘上的 🎤 说话，一样能输入。"
         )
 
