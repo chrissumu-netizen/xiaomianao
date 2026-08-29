@@ -46,7 +46,7 @@ DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 DEFAULT_MODEL = "glm-5.3-flash"         # 聊天 + 看图全能，已实测可用
 
 # 一键激活链接：打开即把正确的 Key 写进应用（Key 已带在链接里，仅你自家 app 用）
-ACTIVATION_URL = "https://xiaomianao-fjgd7rxrneeyy8nqnegqv6.streamlit.app/?key=1df0cdefee2d4dd7bf56e95871a8c8ad.JeyyXxr35DlYIKt0"
+ACTIVATION_URL = "https://xiaomianao-fjgd7rxrneeyy8nqnegqv6.streamlit.app/?key=1df0cdefee2d4dd7bf56e95871a8c8ad.JeyyXxr35DlYIKt0&asr=sk-htotmyunihbgtvzecggxjurteihbysccojijbxcagafqhzyu"
 
 
 def _is_valid_zhipu_key(key: str) -> bool:
@@ -514,7 +514,8 @@ def _voice_player(msg_key: str, audio_bytes: bytes, autoplay: bool = False) -> N
 
 
 def transcribe_audio(audio_bytes: bytes) -> str:
-    """语音转文字：调用 OpenAI 兼容的音频识别接口"""
+    """语音转文字：调用 OpenAI 兼容的音频识别接口。
+    默认模型挂了会自动换下一个（2026-08-29 实测 SenseVoice 接口 503，XingChenASR 可用）。"""
     key = (st.session_state.get("asr_key") or "").strip()
     if not key:
         raise RuntimeError("还没配置语音识别 Key")
@@ -522,11 +523,24 @@ def transcribe_audio(audio_bytes: bytes) -> str:
         api_key=key,
         base_url=(st.session_state.get("asr_base_url") or "").strip() or DEFAULT_ASR_BASE_URL,
     )
-    resp = client.audio.transcriptions.create(
-        model=(st.session_state.get("asr_model") or "").strip() or DEFAULT_ASR_MODEL,
-        file=("voice.wav", audio_bytes, "audio/wav"),
-    )
-    return (getattr(resp, "text", None) or "").strip()
+    user_model = (st.session_state.get("asr_model") or "").strip() or DEFAULT_ASR_MODEL
+    # 备用模型链：用户配的模型优先，其余按顺序兜底
+    fallbacks = ["FunAudioLLM/SenseVoiceSmall", "XingChenAGI/XingChenASR-V3.2", "Qwen/Qwen3-ASR-1.7B"]
+    models = [user_model] + [m for m in fallbacks if m != user_model]
+    errors = []
+    for model in models:
+        try:
+            resp = client.audio.transcriptions.create(
+                model=model,
+                file=("voice.wav", audio_bytes, "audio/wav"),
+            )
+            text = (getattr(resp, "text", None) or "").strip()
+            if text:
+                return text
+            errors.append(f"{model}：没听清（空结果）")
+        except Exception as e:
+            errors.append(f"{model}：{type(e).__name__}")
+    raise RuntimeError("；".join(errors))
 
 
 def now_beijing() -> datetime.datetime:
