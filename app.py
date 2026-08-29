@@ -22,6 +22,7 @@ import re
 import datetime
 
 import streamlit as st
+import streamlit.components.v1 as components
 from PIL import Image
 from openai import OpenAI
 
@@ -427,6 +428,82 @@ def text_to_speech(text: str, role: str) -> bytes:
     return asyncio.run(_generate())
 
 
+def _voice_player(msg_key: str, audio_bytes: bytes, autoplay: bool = False) -> None:
+    """手机大按钮语音播放器：🔊 播放 / ⏹ 停止，点一下就行。
+
+    用 st.components 的 iframe 跑 JS（st.markdown 里的 JS 会被剥离），
+    音频元素建在主页面里（window.parent），自动播放走主页面权限（安卓/微信
+    点过页面后就允许；iPhone 的系统限制拦截自动播放，就点一下大按钮）。
+    """
+    b64 = base64.b64encode(audio_bytes).decode("ascii")
+    html = f"""
+    <style>
+      #vpbtn_{msg_key}{{
+        display:inline-flex;align-items:center;justify-content:center;gap:8px;
+        border:none;border-radius:44px;padding:14px 30px;font-size:20px;font-family:inherit;font-weight:600;
+        background:linear-gradient(135deg,#8E6BE8,#C9A3F0);color:#fff;
+        box-shadow:0 4px 14px rgba(142,107,232,.4);
+        min-width:160px;min-height:56px;cursor:pointer;user-select:none;-webkit-user-select:none;
+      }}
+      #vpbtn_{msg_key}.playing{{background:linear-gradient(135deg,#E85D75,#F0A3B8);}}
+    </style>
+    <button id="vpbtn_{msg_key}" onclick="vpToggle('{msg_key}')">🔊 播放</button>
+    <script>
+    (function(){{
+      var doc = window.parent.document;
+      var a = doc.getElementById('vpa_{msg_key}');
+      if(!a){{
+        a = doc.createElement('audio');
+        a.id = 'vpa_{msg_key}';
+        a.src = 'data:audio/mp3;base64,{b64}';
+        a.preload = 'auto';
+        a.style.display = 'none';
+        doc.body.appendChild(a);
+      }}
+      var btn = document.getElementById('vpbtn_{msg_key}');
+      function sync(){{
+        var playing = !a.paused && !a.ended && a.currentTime > 0;
+        var isOn = btn.classList.contains('playing');
+        if(playing !== isOn){{
+          btn.classList.toggle('playing', playing);
+          btn.textContent = playing ? '⏹ 停止' : '🔊 播放';
+        }}
+      }}
+      a.addEventListener('play', sync);
+      a.addEventListener('pause', sync);
+      a.addEventListener('ended', sync);
+      function stopOthers(){{
+        doc.querySelectorAll('audio[id^="vpa_"]').forEach(function(x){{
+          if(x !== a){{ x.pause(); x.currentTime = 0; }}
+        }});
+      }}
+      window.vpToggle = function(k){{
+        var el = doc.getElementById('vpa_'+k);
+        var b = document.getElementById('vpbtn_'+k);
+        if(!el || !b) return;
+        if(el.paused){{
+          stopOthers();
+          var p = el.play();
+          if(p && p.catch) p.catch(function(){{}});
+        }} else {{
+          el.pause();
+          el.currentTime = 0;
+          sync();
+        }}
+      }};
+      if({ "true" if autoplay else "false" } && !a.dataset.autoplayed){{
+        a.dataset.autoplayed = '1';
+        stopOthers();
+        var p = a.play();
+        if(p && p.catch) p.catch(function(){{}});
+      }}
+      sync();
+    }})();
+    </script>
+    """
+    components.html(html, height=72)
+
+
 def transcribe_audio(audio_bytes: bytes) -> str:
     """语音转文字：调用 OpenAI 兼容的音频识别接口"""
     key = (st.session_state.get("asr_key") or "").strip()
@@ -690,21 +767,23 @@ def show_chat_tab():
     if st.session_state.get("preview_role") == name and st.session_state.get("preview_audio"):
         st.audio(st.session_state.preview_audio, format="audio/mp3", autoplay=True)
 
-    # 历史消息：文字 + 每条回答带「🔊 播放语音」按钮（想听哪条点哪条）
-    history = st.session_state.chat[name]
-    for idx, msg in enumerate(history):
+    # 历史消息：文字 + 每条回答带大号「🔊 播放 / ⏹ 停止」按钮（手机触屏友好）
+    history = st.session_state.chat[name][-10:]
+    base_idx = len(st.session_state.chat[name]) - len(history)
+    for offset, msg in enumerate(history):
+        idx = base_idx + offset
         with st.chat_message("assistant" if msg["role"] == "assistant" else "user"):
             st.markdown(msg["content"])
             if msg["role"] == "assistant":
-                if st.button("🔊 播放语音", key=f"play_{name}_{idx}"):
-                    st.session_state.play_key = f"{name}_{idx}"
-                if st.session_state.get("play_key") == f"{name}_{idx}":
-                    st.session_state.pop("play_key", None)
-                    try:
-                        audio = text_to_speech(msg["content"], name)
-                        st.audio(audio, format="audio/mp3", autoplay=True)
-                    except Exception:
-                        pass
+                if msg.get("audio"):
+                    _voice_player(f"{name}_{idx}", msg["audio"])
+                else:
+                    if st.button("🔊 播放语音", key=f"vp_{name}_{idx}", help="点一下，让 ta 把这条读给你听"):
+                        try:
+                            msg["audio"] = text_to_speech(msg["content"], name)
+                            st.rerun()
+                        except Exception:
+                            st.warning("语音生成失败，稍后再试")
 
     # 语音输入：录一段话自动转成文字发送
     st.markdown("**🎤 说给她听**（说完点停止，自动发送）")
@@ -758,17 +837,19 @@ def show_chat_tab():
                         "🔗 一键激活链接重设，或清掉重粘正确 Key 再点「💾 保存 Key」。"
                     )
             st.markdown(reply)
-        # 语音输入触发的回答：默认用语音回一句（文字同步显示，下面历史里也有播放按钮）
+        # 语音输入触发的回答：直接语音回一句（不用再点），文字同步显示
+        audio_bytes = None
         if voice_triggered and st.session_state.get("auto_speak", True):
             try:
-                audio = text_to_speech(reply, name)
-                st.audio(audio, format="audio/mp3", autoplay=True)
+                audio_bytes = text_to_speech(reply, name)
             except Exception:
-                pass
-        # 历史消息统一渲染（刷新/切角色播放器不丢）；语音自动朗读只在刚回答时播一次
+                audio_bytes = None
+        new_idx = len(st.session_state.chat[name])  # 即将 append 的下标
         st.session_state.chat[name].append(
-            {"role": "assistant", "content": reply, "voice_triggered": voice_triggered}
+            {"role": "assistant", "content": reply, "audio": audio_bytes}
         )
+        if audio_bytes:
+            _voice_player(f"{name}_{new_idx}", audio_bytes, autoplay=True)
 
 
 # ============================================================
