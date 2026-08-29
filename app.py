@@ -847,7 +847,11 @@ def show_chat_tab():
             with st.spinner(f"{name}正在想…"):
                 try:
                     # 只带最近 10 条历史，省 token 也防止越聊越偏
-                    history = st.session_state.chat[name][-10:]
+                    # 只传 role/content（消息里存的 audio 等字段是给播放器用的，不能发给 API）
+                    history = [
+                        {"role": m.get("role"), "content": m.get("content", "")}
+                        for m in st.session_state.chat[name][-10:]
+                    ]
                     messages = [{"role": "system", "content": info["prompt"]}] + history
                     reply = call_chat(messages)
                 except Exception as e:
