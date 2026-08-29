@@ -690,22 +690,27 @@ def show_chat_tab():
     if st.session_state.get("preview_role") == name and st.session_state.get("preview_audio"):
         st.audio(st.session_state.preview_audio, format="audio/mp3", autoplay=True)
 
-    # 历史消息（助手的回复带上朗读播放器，最新的那条自动播放）
+    # 历史消息：文字 + 每条回答带「🔊 播放语音」按钮（想听哪条点哪条）
     history = st.session_state.chat[name]
     for idx, msg in enumerate(history):
         with st.chat_message("assistant" if msg["role"] == "assistant" else "user"):
             st.markdown(msg["content"])
-            if msg["role"] == "assistant" and st.session_state.get("auto_speak", True):
-                try:
-                    audio = text_to_speech(msg["content"], name)
-                    st.audio(audio, format="audio/mp3", autoplay=(idx == len(history) - 1))
-                except Exception:
-                    pass
+            if msg["role"] == "assistant":
+                if st.button("🔊 播放语音", key=f"play_{name}_{idx}"):
+                    st.session_state.play_key = f"{name}_{idx}"
+                if st.session_state.get("play_key") == f"{name}_{idx}":
+                    st.session_state.pop("play_key", None)
+                    try:
+                        audio = text_to_speech(msg["content"], name)
+                        st.audio(audio, format="audio/mp3", autoplay=True)
+                    except Exception:
+                        pass
 
     # 语音输入：录一段话自动转成文字发送
     st.markdown("**🎤 说给她听**（说完点停止，自动发送）")
     audio_value = st.audio_input("按住说话", key=f"mic_{name}", label_visibility="collapsed")
     user_input = None
+    voice_triggered = False  # 这次输入是不是用语音说的（决定要不要默认语音回答）
     if audio_value is not None:
         audio_bytes = audio_value.getvalue()
         fingerprint = f"{len(audio_bytes)}_{name}"
@@ -716,6 +721,7 @@ def show_chat_tab():
                     try:
                         user_input = transcribe_audio(audio_bytes)
                         if user_input:
+                            voice_triggered = True
                             st.success(f"听到啦：{user_input}")
                         else:
                             st.warning("没听清楚，再说一遍试试～")
@@ -752,8 +758,17 @@ def show_chat_tab():
                         "🔗 一键激活链接重设，或清掉重粘正确 Key 再点「💾 保存 Key」。"
                     )
             st.markdown(reply)
-        # 音频在历史消息里统一渲染（这样切换角色、刷新都不会让播放器消失）
-        st.session_state.chat[name].append({"role": "assistant", "content": reply})
+        # 语音输入触发的回答：默认用语音回一句（文字同步显示，下面历史里也有播放按钮）
+        if voice_triggered and st.session_state.get("auto_speak", True):
+            try:
+                audio = text_to_speech(reply, name)
+                st.audio(audio, format="audio/mp3", autoplay=True)
+            except Exception:
+                pass
+        # 历史消息统一渲染（刷新/切角色播放器不丢）；语音自动朗读只在刚回答时播一次
+        st.session_state.chat[name].append(
+            {"role": "assistant", "content": reply, "voice_triggered": voice_triggered}
+        )
 
 
 # ============================================================
@@ -831,11 +846,11 @@ with st.sidebar:
     st.markdown("## 🎙️ 语音设置")
 
     st.session_state.auto_speak = st.checkbox(
-        "🔊 自动朗读回复",
+        "🎤 语音输入后自动语音回答",
         value=st.session_state.get("auto_speak", True),
-        help="关掉的话，回复就只显示文字，不自动出声",
+        help="开着：用语音说话后，ta 会用语音回答（文字同步显示）。关掉：只显示文字，想听就点回答下面的「🔊 播放语音」",
     )
-    st.caption("三个角色各有一种声音：豆姐=温柔姐姐声、夏博士=沉稳男声、柯小瓶=俏皮可爱声")
+    st.caption("每条回答都有「🔊 播放语音」按钮，随时可以点来听；三个角色各有一种声音：豆姐=温柔姐姐声、夏博士=沉稳男声、柯小瓶=俏皮可爱声")
 
     with st.expander("语音识别（说话输入）配置"):
         st.session_state.asr_base_url = st.text_input(
